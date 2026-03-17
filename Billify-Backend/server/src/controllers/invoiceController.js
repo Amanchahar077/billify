@@ -6,27 +6,38 @@ import { Invoice } from "../models/Invoice.js";
 import { Customer } from "../models/Customer.js";
 
 function buildTotals(items) {
+  let subtotal = 0;
+  let taxTotal = 0;
+
   const normalized = items.map((item) => {
     const quantity = Number(item.quantity || 0);
-    const rate = Number(item.rate || 0);
-    const taxRate = Number(item.taxRate || 0);
-    const lineSubtotal = quantity * rate;
-    const taxAmount = lineSubtotal * (taxRate / 100);
-    const lineTotal = lineSubtotal + taxAmount;
+    const listPrice = Number(item.listPrice ?? item.rate ?? 0);
+    const discount = Number(item.discount || 0);
+    const cgstRate = Number(item.cgstRate ?? (item.taxRate ? Number(item.taxRate) / 2 : 0));
+    const sgstRate = Number(item.sgstRate ?? (item.taxRate ? Number(item.taxRate) / 2 : 0));
+    const taxable = Math.max(0, quantity * listPrice - discount);
+    const cgstAmount = taxable * (cgstRate / 100);
+    const sgstAmount = taxable * (sgstRate / 100);
+    const lineTotal = taxable + cgstAmount + sgstAmount;
+
+    subtotal += taxable;
+    taxTotal += cgstAmount + sgstAmount;
+
     return {
       description: String(item.description || "").trim(),
+      hsnSac: String(item.hsnSac || "").trim(),
       quantity,
-      rate,
-      taxRate,
+      unit: String(item.unit || "Nos"),
+      listPrice,
+      rate: listPrice,
+      discount,
+      cgstRate,
+      sgstRate,
+      taxRate: cgstRate + sgstRate,
       lineTotal
     };
   });
 
-  const subtotal = normalized.reduce((sum, item) => sum + item.quantity * item.rate, 0);
-  const taxTotal = normalized.reduce(
-    (sum, item) => sum + item.quantity * item.rate * (item.taxRate / 100),
-    0
-  );
   const grandTotal = subtotal + taxTotal;
 
   return { items: normalized, subtotal, taxTotal, grandTotal };

@@ -9,7 +9,7 @@ export const listProducts = asyncHandler(async (req, res) => {
 });
 
 export const createProduct = asyncHandler(async (req, res) => {
-  const { name, sku, price, taxRate } = req.body;
+  const { name, sku, hsnSac, price, taxRate, cgstRate, sgstRate } = req.body;
   if (!name || price == null) {
     throw new ApiError(400, "Product name and price are required");
   }
@@ -17,8 +17,11 @@ export const createProduct = asyncHandler(async (req, res) => {
   const product = await Product.create({
     name: name.trim(),
     sku: sku?.trim(),
+    hsnSac: hsnSac?.trim(),
     price: Number(price),
-    taxRate: Number(taxRate || 0),
+    cgstRate: Number(cgstRate || 0),
+    sgstRate: Number(sgstRate || 0),
+    taxRate: Number(taxRate || 0) || Number(cgstRate || 0) + Number(sgstRate || 0),
     createdBy: req.user._id
   });
 
@@ -26,10 +29,12 @@ export const createProduct = asyncHandler(async (req, res) => {
 });
 
 export const updateProduct = asyncHandler(async (req, res) => {
-  const { name, sku, price, taxRate } = req.body;
+  const { name, sku, hsnSac, price, taxRate, cgstRate, sgstRate } = req.body;
+  const resolvedTaxRate =
+    Number(taxRate || 0) || Number(cgstRate || 0) + Number(sgstRate || 0);
   const product = await Product.findOneAndUpdate(
     { _id: req.params.id, createdBy: req.user._id },
-    { name, sku, price, taxRate },
+    { name, sku, hsnSac, price, taxRate: resolvedTaxRate, cgstRate, sgstRate },
     { new: true, runValidators: true }
   );
 

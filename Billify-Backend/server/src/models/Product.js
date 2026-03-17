@@ -4,7 +4,10 @@ const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     sku: { type: String, trim: true },
+    hsnSac: { type: String, trim: true },
     price: { type: Number, required: true },
+    cgstRate: { type: Number, default: 0 },
+    sgstRate: { type: Number, default: 0 },
     taxRate: { type: Number, default: 0 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true }
   },

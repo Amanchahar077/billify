@@ -24,12 +24,33 @@ function publicUser(user) {
     gstin: user.gstin,
     city: user.city,
     state: user.state,
-    postalCode: user.postalCode
+    postalCode: user.postalCode,
+    bankAccountHolder: user.bankAccountHolder,
+    bankName: user.bankName,
+    bankAccountNumber: user.bankAccountNumber,
+    bankIfsc: user.bankIfsc,
+    bankBranch: user.bankBranch
   };
 }
 
 export const register = asyncHandler(async (req, res) => {
-  const { name, businessName, email, password, phone, address, gstin, city, state, postalCode } = req.body;
+  const {
+    name,
+    businessName,
+    email,
+    password,
+    phone,
+    address,
+    gstin,
+    city,
+    state,
+    postalCode,
+    bankAccountHolder,
+    bankName,
+    bankAccountNumber,
+    bankIfsc,
+    bankBranch
+  } = req.body;
 
   if (!name || !businessName || !email || !password) {
     throw new ApiError(400, "All fields are required");
@@ -49,7 +70,12 @@ export const register = asyncHandler(async (req, res) => {
     gstin: gstin?.trim(),
     city: city?.trim(),
     state: state?.trim(),
-    postalCode: postalCode?.trim()
+    postalCode: postalCode?.trim(),
+    bankAccountHolder: bankAccountHolder?.trim(),
+    bankName: bankName?.trim(),
+    bankAccountNumber: bankAccountNumber?.trim(),
+    bankIfsc: bankIfsc?.trim(),
+    bankBranch: bankBranch?.trim()
   });
   await user.setPassword(password.trim());
   await user.save();
@@ -95,7 +121,7 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const me = asyncHandler(async (req, res) => {
-  res.status(200).json(new ApiResponse(200, req.user, "Profile loaded"));
+  res.status(200).json(new ApiResponse(200, publicUser(req.user), "Profile loaded"));
 });
 
 export const logout = asyncHandler(async (req, res) => {
@@ -140,7 +166,22 @@ export const refresh = asyncHandler(async (req, res) => {
 });
 
 export const updateProfile = asyncHandler(async (req, res) => {
-  const allowed = ["name", "businessName", "email", "phone", "address", "gstin", "city", "state", "postalCode"];
+  const allowed = [
+    "name",
+    "businessName",
+    "email",
+    "phone",
+    "address",
+    "gstin",
+    "city",
+    "state",
+    "postalCode",
+    "bankAccountHolder",
+    "bankName",
+    "bankAccountNumber",
+    "bankIfsc",
+    "bankBranch"
+  ];
   const updates = {};
 
   for (const key of allowed) {

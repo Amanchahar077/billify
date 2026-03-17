@@ -2,10 +2,48 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./api.js";
 import { API_BASE, REFRESH_KEY, currency, emptyLineItem } from "./constants.js";
 
+function getLineAmounts(item) {
+  const quantity = Number(item.quantity || 0);
+  const listPrice = Number(item.listPrice ?? item.rate ?? 0);
+  const discount = Number(item.discount || 0);
+  const cgstRate = Number(item.cgstRate ?? (item.taxRate ? Number(item.taxRate) / 2 : 0));
+  const sgstRate = Number(item.sgstRate ?? (item.taxRate ? Number(item.taxRate) / 2 : 0));
+  const taxable = Math.max(0, quantity * listPrice - discount);
+  const cgstAmount = taxable * (cgstRate / 100);
+  const sgstAmount = taxable * (sgstRate / 100);
+  const lineTotal = taxable + cgstAmount + sgstAmount;
+  return { quantity, listPrice, discount, cgstRate, sgstRate, taxable, cgstAmount, sgstAmount, lineTotal };
+}
+
 function buildTotals(items) {
-  const subtotal = items.reduce((sum, item) => sum + item.quantity * item.rate, 0);
-  const taxTotal = items.reduce((sum, item) => sum + item.quantity * item.rate * (item.taxRate / 100), 0);
-  return { subtotal, taxTotal, grandTotal: subtotal + taxTotal };
+  const totals = items.reduce(
+    (acc, item) => {
+      const amounts = getLineAmounts(item);
+      acc.subtotal += amounts.taxable;
+      acc.taxTotal += amounts.cgstAmount + amounts.sgstAmount;
+      return acc;
+    },
+    { subtotal: 0, taxTotal: 0 }
+  );
+  return { ...totals, grandTotal: totals.subtotal + totals.taxTotal };
+}
+
+function buildPayloadItems(items) {
+  return items.map((item) => {
+    const amounts = getLineAmounts(item);
+    return {
+      description: item.description,
+      hsnSac: item.hsnSac || "",
+      quantity: amounts.quantity,
+      unit: item.unit || "Nos",
+      listPrice: amounts.listPrice,
+      rate: amounts.listPrice,
+      discount: amounts.discount,
+      cgstRate: amounts.cgstRate,
+      sgstRate: amounts.sgstRate,
+      taxRate: amounts.cgstRate + amounts.sgstRate
+    };
+  });
 }
 
 function formatDate(value) {
@@ -27,6 +65,7 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [summary, setSummary] = useState(null);
   const [invoicePreview, setInvoicePreview] = useState(null);
+  const [reportPaidId, setReportPaidId] = useState("");
 
   const [customerEditId, setCustomerEditId] = useState("");
   const [invoiceItems, setInvoiceItems] = useState([emptyLineItem()]);
@@ -40,7 +79,12 @@ export default function App() {
     gstin: "",
     city: "",
     state: "",
-    postalCode: ""
+    postalCode: "",
+    bankAccountHolder: "",
+    bankName: "",
+    bankAccountNumber: "",
+    bankIfsc: "",
+    bankBranch: ""
   });
 
   const totals = useMemo(() => buildTotals(invoiceItems), [invoiceItems]);
@@ -100,7 +144,12 @@ export default function App() {
       gstin: user.gstin || "",
       city: user.city || "",
       state: user.state || "",
-      postalCode: user.postalCode || ""
+      postalCode: user.postalCode || "",
+      bankAccountHolder: user.bankAccountHolder || "",
+      bankName: user.bankName || "",
+      bankAccountNumber: user.bankAccountNumber || "",
+      bankIfsc: user.bankIfsc || "",
+      bankBranch: user.bankBranch || ""
     });
   }, [user]);
 
@@ -226,12 +275,15 @@ export default function App() {
   const handleInvoiceSubmit = async (event) => {
     event.preventDefault();
     const formData = new FormData(event.target);
+    const payloadItems = buildPayloadItems(invoiceItems).filter(
+      (item) => item.description && item.quantity > 0
+    );
     const payload = {
       customerId: formData.get("customerId"),
       issueDate: formData.get("issueDate"),
       dueDate: formData.get("dueDate"),
       notes: formData.get("notes"),
-      items: invoiceItems.filter((item) => item.description && item.quantity > 0)
+      items: payloadItems
     };
     if (!payload.items.length) {
       alert("Add at least one line item.");
@@ -252,12 +304,15 @@ export default function App() {
     const form = document.getElementById("invoiceForm");
     if (!form) return;
     const formData = new FormData(form);
+    const previewItems = buildPayloadItems(invoiceItems).filter(
+      (item) => item.description && item.quantity > 0
+    );
     const data = {
       customerId: formData.get("customerId"),
       issueDate: formData.get("issueDate"),
       dueDate: formData.get("dueDate"),
       notes: formData.get("notes"),
-      items: invoiceItems.filter((item) => item.description && item.quantity > 0),
+      items: previewItems,
       invoiceNumber: "PREVIEW"
     };
     if (!data.customerId || data.items.length === 0) {
@@ -276,6 +331,8 @@ export default function App() {
     setSelectedProductId("");
     setInvoicePreview(null);
   };
+
+  const pendingInvoices = invoices.filter((inv) => inv.status !== "paid");
 
   const handleProfileChange = (event) => {
     const { name, value } = event.target;
@@ -520,6 +577,11 @@ export default function App() {
               <p>{user?.state || "State not set"}</p>
               <p>{user?.postalCode || "Postal code not set"}</p>
               <p>{user?.gstin || "GSTIN not set"}</p>
+              <p>{user?.bankAccountHolder || "A/c holder not set"}</p>
+              <p>{user?.bankName || "Bank name not set"}</p>
+              <p>{user?.bankAccountNumber || "A/c no. not set"}</p>
+              <p>{user?.bankIfsc || "IFSC not set"}</p>
+              <p>{user?.bankBranch || "Branch not set"}</p>
             </div>
           </div>
           <nav className="sidebar-nav">
@@ -600,6 +662,40 @@ export default function App() {
                     <label>
                       Postal code
                       <input name="postalCode" value={profileForm.postalCode} onChange={handleProfileChange} />
+                    </label>
+                  </div>
+                  <div className="form-grid">
+                    <label>
+                      A/c Holder
+                      <input
+                        name="bankAccountHolder"
+                        value={profileForm.bankAccountHolder}
+                        onChange={handleProfileChange}
+                      />
+                    </label>
+                    <label>
+                      Bank Name
+                      <input name="bankName" value={profileForm.bankName} onChange={handleProfileChange} />
+                    </label>
+                  </div>
+                  <div className="form-grid">
+                    <label>
+                      A/c No.
+                      <input
+                        name="bankAccountNumber"
+                        value={profileForm.bankAccountNumber}
+                        onChange={handleProfileChange}
+                      />
+                    </label>
+                    <label>
+                      IFSC Code
+                      <input name="bankIfsc" value={profileForm.bankIfsc} onChange={handleProfileChange} />
+                    </label>
+                  </div>
+                  <div className="form-grid">
+                    <label>
+                      Branch
+                      <input name="bankBranch" value={profileForm.bankBranch} onChange={handleProfileChange} />
                     </label>
                   </div>
                   <div className="form-actions end">
@@ -752,12 +848,20 @@ export default function App() {
                   <input name="name" required placeholder="Design retainer" />
                 </label>
                 <label>
-                  SKU
-                  <input name="sku" placeholder="RET-001" />
+                  HSN/SAC Code
+                  <input name="hsnSac" placeholder="9983" />
                 </label>
                 <label>
                   Price
                   <input name="price" type="number" step="0.01" required placeholder="12000" />
+                </label>
+                <label>
+                  CGST %
+                  <input name="cgstRate" type="number" step="0.1" placeholder="9" />
+                </label>
+                <label>
+                  SGST %
+                  <input name="sgstRate" type="number" step="0.1" placeholder="9" />
                 </label>
                 <label>
                   Tax rate
@@ -768,19 +872,23 @@ export default function App() {
                   <button className="btn-ghost" type="reset">Clear</button>
                 </div>
               </form>
-              <div className="modern-table">
+              <div className="modern-table products-table">
                 <div className="table-row header">
                   <div>Product</div>
-                  <div>SKU</div>
+                  <div>HSN/SAC</div>
                   <div>Price</div>
-                  <div>Tax</div>
+                  <div>CGST</div>
+                  <div>SGST</div>
+                  <div>GST</div>
                   <div>Actions</div>
                 </div>
                 {products.map((product) => (
                   <div className="table-row" key={product._id}>
                     <div>{product.name}</div>
-                  <div>{product.sku || "-"}</div>
+                  <div>{product.hsnSac || "-"}</div>
                   <div>{currency(product.price)}</div>
+                  <div>{product.cgstRate ?? 0}%</div>
+                  <div>{product.sgstRate ?? 0}%</div>
                   <div>{product.taxRate || 0}%</div>
                   <div>
                     <button className="link" onClick={() => handleProductDelete(product._id)}>Delete</button>
@@ -844,11 +952,19 @@ export default function App() {
                       onClick={() => {
                         const product = products.find((p) => p._id === selectedProductId);
                         if (!product) return;
+                        const cgst = Number(product.cgstRate ?? (product.taxRate || 0) / 2);
+                        const sgst = Number(product.sgstRate ?? (product.taxRate || 0) / 2);
                         setInvoiceItems([...invoiceItems, {
                           description: product.name,
+                          hsnSac: product.hsnSac || "",
                           quantity: 1,
+                          unit: "Nos",
+                          listPrice: product.price,
                           rate: product.price,
-                          taxRate: product.taxRate
+                          discount: 0,
+                          cgstRate: cgst,
+                          sgstRate: sgst,
+                          taxRate: Number(product.taxRate || (cgst + sgst))
                         }]);
                         setSelectedProductId("");
                       }}
@@ -860,76 +976,156 @@ export default function App() {
 
                 <div className="line-items boxed">
                   <p className="section-label">Invoice Items *</p>
-                  {invoiceItems.map((item, index) => (
-                    <div className="line-item" key={`line-${index}`}>
-                      <input
-                        placeholder="Product Description *"
-                        value={item.description}
-                        onChange={(e) => {
-                          const next = [...invoiceItems];
-                          next[index].description = e.target.value;
-                          setInvoiceItems(next);
-                        }}
-                      />
-                      <input
-                        type="number"
-                        min="1"
-                        placeholder="Qty (e.g., 1)"
-                        value={item.quantity}
-                        onChange={(e) => {
-                          const next = [...invoiceItems];
-                          next[index].quantity = Number(e.target.value || 0);
-                          setInvoiceItems(next);
-                        }}
-                      />
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="Rate (₹)"
-                        value={item.rate}
-                        onChange={(e) => {
-                          const next = [...invoiceItems];
-                          next[index].rate = Number(e.target.value || 0);
-                          setInvoiceItems(next);
-                        }}
-                      />
-                      <select
-                        value={item.taxRate}
-                        onChange={(e) => {
-                          const next = [...invoiceItems];
-                          next[index].taxRate = Number(e.target.value || 0);
-                          setInvoiceItems(next);
-                        }}
-                      >
-                        {[0, 5, 12, 18, 28].map((rate) => (
-                          <option key={rate} value={rate}>
-                            {rate}% GST
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        readOnly
-                        value={currency(item.quantity * item.rate + item.quantity * item.rate * (item.taxRate / 100))}
-                      />
-                      <button
-                        type="button"
-                        className="btn-danger"
-                        onClick={() => setInvoiceItems(invoiceItems.filter((_, i) => i !== index))}
-                      >
-                        x
-                      </button>
-                    </div>
-                  ))}
+                  <div className="line-item-head">
+                    <span>Description</span>
+                    <span>HSN/SAC</span>
+                    <span>Qty</span>
+                    <span>Unit</span>
+                    <span>List Price</span>
+                    <span>Discount</span>
+                    <span>GST %</span>
+                    <span>CGST %</span>
+                    <span>SGST %</span>
+                    <span>Amount</span>
+                    <span />
+                  </div>
+                  {invoiceItems.map((item, index) => {
+                    const amounts = getLineAmounts(item);
+                    return (
+                      <div className="line-item" key={`line-${index}`}>
+                        <input
+                          placeholder="Product Description *"
+                          value={item.description}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            next[index].description = e.target.value;
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          placeholder="HSN/SAC"
+                          value={item.hsnSac || ""}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            next[index].hsnSac = e.target.value;
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="Qty"
+                          value={item.quantity}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            next[index].quantity = Number(e.target.value || 0);
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          placeholder="Unit"
+                          value={item.unit || "Nos"}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            next[index].unit = e.target.value;
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="List Price (₹)"
+                          value={item.listPrice ?? item.rate ?? 0}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            const value = Number(e.target.value || 0);
+                            next[index].listPrice = value;
+                            next[index].rate = value;
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Discount (₹)"
+                          value={item.discount || 0}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            next[index].discount = Number(e.target.value || 0);
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          placeholder="GST %"
+                          value={item.taxRate ?? 0}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            const value = Number(e.target.value || 0);
+                            const half = value / 2;
+                            next[index].taxRate = value;
+                            next[index].cgstRate = half;
+                            next[index].sgstRate = half;
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          placeholder="CGST %"
+                          value={item.cgstRate ?? (item.taxRate ? Number(item.taxRate) / 2 : 0)}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            const value = Number(e.target.value || 0);
+                            const sgst = Number(
+                              next[index].sgstRate ?? (next[index].taxRate ? Number(next[index].taxRate) / 2 : 0)
+                            );
+                            next[index].cgstRate = value;
+                            next[index].taxRate = value + sgst;
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          placeholder="SGST %"
+                          value={item.sgstRate ?? (item.taxRate ? Number(item.taxRate) / 2 : 0)}
+                          onChange={(e) => {
+                            const next = [...invoiceItems];
+                            const value = Number(e.target.value || 0);
+                            const cgst = Number(
+                              next[index].cgstRate ?? (next[index].taxRate ? Number(next[index].taxRate) / 2 : 0)
+                            );
+                            next[index].sgstRate = value;
+                            next[index].taxRate = value + cgst;
+                            setInvoiceItems(next);
+                          }}
+                        />
+                        <input readOnly value={currency(amounts.lineTotal)} />
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          onClick={() => setInvoiceItems(invoiceItems.filter((_, i) => i !== index))}
+                        >
+                          x
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    className="btn-ghost add-row"
+                    onClick={() => setInvoiceItems([...invoiceItems, emptyLineItem()])}
+                  >
+                    + Add Custom Item
+                  </button>
                 </div>
-
-                <button
-                  type="button"
-                  className="btn-ghost add-row"
-                  onClick={() => setInvoiceItems([...invoiceItems, emptyLineItem()])}
-                >
-                  + Add Custom Item
-                </button>
 
                 <div className="divider" />
 
@@ -985,35 +1181,42 @@ export default function App() {
                     <table className="invoice-table compact-table bordered-table">
                       <thead>
                         <tr>
-                          <th>Sr.</th>
+                          <th>S.N.</th>
                           <th>Description of Goods</th>
-                          <th>HSN/SAC</th>
-                          <th>Qty</th>
+                          <th>HSN/SAC Code</th>
+                          <th>Qty.</th>
                           <th>Unit</th>
-                          <th>Rate</th>
+                          <th>List Price</th>
                           <th>Discount</th>
-                          <th>Taxable</th>
                           <th>GST %</th>
-                          <th>GST Amt</th>
-                          <th>Amount</th>
+                          <th>CGST Rate</th>
+                          <th>CGST Amount</th>
+                          <th>SGST Rate</th>
+                          <th>SGST Amount</th>
+                          <th>Amount( )</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {invoicePreview.items.map((item, index) => (
-                          <tr key={`${item.description}-${index}`}>
-                            <td>{index + 1}</td>
-                            <td>{item.description}</td>
-                            <td>-</td>
-                            <td>{item.quantity}</td>
-                            <td>Nos</td>
-                            <td>{currency(item.rate)}</td>
-                            <td>-</td>
-                            <td>{currency(item.quantity * item.rate)}</td>
-                            <td>{item.taxRate}%</td>
-                            <td>{currency(item.quantity * item.rate * (item.taxRate / 100))}</td>
-                            <td>{currency(item.quantity * item.rate + item.quantity * item.rate * (item.taxRate / 100))}</td>
-                          </tr>
-                        ))}
+                        {invoicePreview.items.map((item, index) => {
+                          const amounts = getLineAmounts(item);
+                          return (
+                            <tr key={`${item.description}-${index}`}>
+                              <td>{index + 1}</td>
+                              <td>{item.description}</td>
+                              <td>{item.hsnSac || "-"}</td>
+                              <td>{amounts.quantity}</td>
+                              <td>{item.unit || "Nos"}</td>
+                              <td>{currency(amounts.listPrice)}</td>
+                              <td>{amounts.discount ? currency(amounts.discount) : "-"}</td>
+                              <td>{amounts.cgstRate + amounts.sgstRate}%</td>
+                              <td>{amounts.cgstRate}%</td>
+                              <td>{currency(amounts.cgstAmount)}</td>
+                              <td>{amounts.sgstRate}%</td>
+                              <td>{currency(amounts.sgstAmount)}</td>
+                              <td>{currency(amounts.lineTotal)}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                     <div className="invoice-total-grid">
@@ -1023,6 +1226,23 @@ export default function App() {
                     <div className="invoice-notes">
                       <p>Amount in words: {previewTotals ? "See total above" : ""}</p>
                       <p>{invoicePreview.notes}</p>
+                    </div>
+                    <div className="invoice-bank">
+                      <p className="bank-title">Company's Bank Details</p>
+                      <p><strong>A/c Holder:</strong> {user?.bankAccountHolder || "-"}</p>
+                      <p><strong>Bank Name:</strong> {user?.bankName || "-"}</p>
+                      <p><strong>A/c No.:</strong> {user?.bankAccountNumber || "-"}</p>
+                      <p><strong>IFSC Code:</strong> {user?.bankIfsc || "-"}</p>
+                      <p><strong>Branch:</strong> {user?.bankBranch || "-"}</p>
+                    </div>
+                    <div className="invoice-terms">
+                      <p className="terms-title">Terms &amp; Conditions</p>
+                      <p>E. &amp; O. E.</p>
+                      <ol>
+                        <li>Goods once sold will not be taken back.</li>
+                        <li>Interest @ 18% p.a. will be charged if the payment is not made within the stipulated time.</li>
+                        <li>Subject to Madhya Pradesh jurisdiction only.</li>
+                      </ol>
                     </div>
                     <div className="invoice-sign">
                       <p>For {user?.businessName || "Billify"}</p>
@@ -1055,7 +1275,12 @@ export default function App() {
                   <p className="muted">Monthly summary and exports.</p>
                 </div>
                 <div className="panel-actions reports-actions">
-                  <input type="month" onChange={(e) => refreshSummary(e.target.value)} />
+                  <input
+                    type="month"
+                    placeholder="Select month"
+                    aria-label="Select month"
+                    onChange={(e) => refreshSummary(e.target.value)}
+                  />
                   <button className="btn-primary" onClick={() => refreshSummary()}>Refresh</button>
                 </div>
               </div>
@@ -1065,6 +1290,31 @@ export default function App() {
                 <div className="summary-card"><strong>Paid</strong><p>{summary?.paidCount}</p></div>
                 <div className="summary-card"><strong>Pending</strong><p>{summary?.pendingCount}</p></div>
                 <div className="summary-card"><strong>Revenue</strong><p>{currency(summary?.revenue || 0)}</p></div>
+              </div>
+              <div className="export-card">
+                <p>Mark an invoice as paid.</p>
+                <div className="reports-actions">
+                  <select value={reportPaidId} onChange={(e) => setReportPaidId(e.target.value)}>
+                    <option value="">Select pending invoice</option>
+                    {pendingInvoices.map((inv) => (
+                      <option key={inv._id} value={inv._id}>
+                        {inv.invoiceNumber} - {currency(inv.grandTotal)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    disabled={!reportPaidId}
+                    onClick={async () => {
+                      if (!reportPaidId) return;
+                      await handleMarkPaid(reportPaidId);
+                      setReportPaidId("");
+                    }}
+                  >
+                    Mark as paid
+                  </button>
+                </div>
               </div>
               <div className="export-card">
                 <p>Download customers CSV with total billed revenue.</p>
@@ -1077,5 +1327,8 @@ export default function App() {
     </div>
   );
 }
+
+
+
 
 

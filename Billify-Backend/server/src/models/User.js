@@ -12,6 +12,11 @@ const userSchema = new mongoose.Schema(
     city: { type: String, trim: true },
     state: { type: String, trim: true },
     postalCode: { type: String, trim: true },
+    bankAccountHolder: { type: String, trim: true },
+    bankName: { type: String, trim: true },
+    bankAccountNumber: { type: String, trim: true },
+    bankIfsc: { type: String, trim: true },
+    bankBranch: { type: String, trim: true },
     passwordHash: { type: String, required: true },
     refreshToken: { type: String, default: null }
   },

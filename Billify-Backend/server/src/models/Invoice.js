@@ -3,8 +3,14 @@ import mongoose from "mongoose";
 const lineItemSchema = new mongoose.Schema(
   {
     description: { type: String, required: true, trim: true },
+    hsnSac: { type: String, trim: true },
     quantity: { type: Number, required: true },
+    unit: { type: String, trim: true, default: "Nos" },
+    listPrice: { type: Number },
     rate: { type: Number, required: true },
+    discount: { type: Number, default: 0 },
+    cgstRate: { type: Number, default: 0 },
+    sgstRate: { type: Number, default: 0 },
     taxRate: { type: Number, default: 0 },
     lineTotal: { type: Number, required: true }
   },
