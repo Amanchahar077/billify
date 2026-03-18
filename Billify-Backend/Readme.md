@@ -8,6 +8,25 @@ REST API for authentication, customers, products, invoices, and reporting.
 3. `npm install`
 4. `npm run dev`
 
+## Deploy On Render
+1. Push this repository to GitHub.
+2. In Render, create a new Blueprint instance or Web Service from the repo.
+3. If you use the included `render.yaml`, Render will automatically detect:
+   - Root directory: `Billify-Backend/server`
+   - Build command: `npm install`
+   - Start command: `npm start`
+   - Health check path: `/api/health`
+4. Set the required environment values:
+   - `MONGODB_URI`
+   - `CORS_ORIGIN`
+   - `JWT_ACCESS_SECRET` if you do not want Render to generate one
+   - `JWT_REFRESH_SECRET` if you do not want Render to generate one
+5. Deploy the service and confirm `https://your-service.onrender.com/api/health` returns success.
+
+## Frontend Connection
+- Set `VITE_API_BASE` in the frontend to `https://your-service.onrender.com/api/v1`
+- Set backend `CORS_ORIGIN` to your frontend domain, for example `https://your-frontend.vercel.app`
+
 ## API Overview
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
