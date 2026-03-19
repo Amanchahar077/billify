@@ -19,14 +19,14 @@ const configuredOrigins = env.corsOrigin
   .filter(Boolean);
 const allowedOrigins = new Set([
   ...configuredOrigins,
-  "http://localhost:5173",
+  // "http://localhost:5173",
   "https://billify-g8tw.vercel.app/"
 ]);
 
 function isLocalhostOrigin(origin) {
   try {
     const url = new URL(origin);
-    return url.hostname === "localhost" || url.hostname === "https://billify-g8tw.vercel.app/";
+    return url.hostname === "https://billify-g8tw.vercel.app/";
   } catch {
     return false;
   }
